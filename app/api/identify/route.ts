@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
           max_tokens: 512,
           stream: true,
           temperature: 0.1,
-          reasoning={"enabled": False},
+          reasoning:{"enabled": False},
           messages: [
   {
     role: "system",
