@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import sharp from "sharp";
+import Together from "together-ai";
 
 export const maxDuration = 120;
 
-const API_URL = "http://34.124.242.252:8000/v1/chat/completions";
-const MODEL = "qwen3.5-9b";
+const MODEL = "Qwen/Qwen3.5-9B";
 
 let cachedRefDataUrl: string | null = null;
 
@@ -22,11 +22,8 @@ async function getRefDataUrl(): Promise<string> {
 }
 
 function parseResult(text: string): { dealerId: string; confidence: string; reasoning: string } {
-  // The assistant prefill starts with '{"dealerId":"', so prepend it back
-  const full = '{"dealerId":"' + text;
-
   // 1. Strip <think>…</think> blocks
-  const stripped = full.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  const stripped = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 
   // 2. Try to extract a complete JSON object
   const jsonMatch = stripped.match(/\{[\s\S]*?\}/);
@@ -62,86 +59,44 @@ export async function POST(req: NextRequest) {
       ? croppedImage
       : `data:image/jpeg;base64,${croppedImage}`;
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 115_000);
+    const client = new Together();
 
-    let fullText = "";
-
-    try {
-      const res = await fetch(API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer none" },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model: MODEL,
-          max_tokens: 512,
-          stream: true,
-          temperature: 0.1,
-          messages: [
-  {
-    role: "system",
-    content: "You are a pattern matcher only return answer"
-  },
-  {
-    role: "user",
-    content: [
-      {
-        type: "text",
-        text:`which DEALER does the second image match in from the grid of labels in first image\n
+    const response = await client.chat.completions.create({
+      model: MODEL,
+      max_tokens: 2048,
+      temperature: 0.1,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      messages: [
+        {
+          role: "system",
+          content: "You are a pattern matcher only return answer /no_think",
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `/no_think which DEALER does the second image match from the grid of labels in first image
 
 Return ONLY this JSON:
-{"dealerId":"DEALER?","confidence":"high|medium|low","reasoning":"one sentence"}
+{"dealerId":"DEALER?","confidence":"high|medium|low","reasoning":"one sentence"}`,
+            },
+            {
+              type: "image_url",
+              image_url: { url: refDataUrl },
+            },
+            {
+              type: "image_url",
+              image_url: { url: croppedDataUrl },
+            },
+          ] as never,
+        },
+      ],
+    });
 
-Do NOT output thinking or analysis.`
-      },
-
-      {
-        type: "image_url",
-        image_url: { url: refDataUrl }
-      },
-
-      {
-        type: "image_url",
-        image_url: { url: croppedDataUrl }
-      }
-    ]
-  }
-]
-         
-         
-        }),
-      });
-
-      if (!res.ok) {
-        const body = await res.text();
-        throw new Error(`Server ${res.status}: ${body}`);
-      }
-
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const payload = line.slice(6).trim();
-          if (payload === "[DONE]") continue;
-          try {
-            const chunk = JSON.parse(payload);
-            fullText += chunk.choices?.[0]?.delta?.content ?? "";
-          } catch { /* skip malformed chunk */ }
-        }
-      }
-    } finally {
-      clearTimeout(timer);
-    }
-
+    console.log("Full response:", JSON.stringify(response.choices[0], null, 2));
+    const msg = response.choices[0]?.message as { content?: string; reasoning?: string };
+    const fullText = msg?.content || msg?.reasoning || "";
     console.log("Model raw response:", fullText.slice(0, 500));
     const result = parseResult(fullText);
     return NextResponse.json(result);
