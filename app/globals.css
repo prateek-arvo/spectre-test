@@ -1,0 +1,40 @@
+@import "tailwindcss";
+@import "react-image-crop/dist/ReactCrop.css";
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Override react-image-crop styles for dark theme */
+.ReactCrop__crop-selection {
+  border: 2px solid rgba(255, 255, 255, 0.9) !important;
+  box-shadow: 0 0 0 9999em rgba(0, 0, 0, 0.6) !important;
+}
+
+.ReactCrop__drag-handle::after {
+  background-color: #ffffff !important;
+  border: none !important;
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 2px !important;
+}
+
+.ReactCrop__drag-bar {
+  background: rgba(255, 255, 255, 0.3) !important;
+}
+
+.ReactCrop {
+  width: 100%;
+}
+
+.ReactCrop__child-wrapper img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
