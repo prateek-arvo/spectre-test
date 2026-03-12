@@ -80,20 +80,14 @@ export async function POST(req: NextRequest) {
           messages: [
   {
     role: "system",
-    content: "You are a JSON-only API. Do not output thinking or <think> tags. Output exactly one JSON object."
+    content: "You are a pattern matcher only return answer
   },
   {
     role: "user",
     content: [
       {
         type: "text",
-        text:
-`Identify which dealer signature matches.
-
-Image 1 = Reference chart containing 18 dealer signatures labeled DEALER1–DEALER18 (one is DEALER16z).
-Image 2 = The signature we want to identify.
-
-Compare Image 2 against Image 1.
+        text:`which DEALER does the second image match in from the grid of labels in first image\n
 
 Return ONLY this JSON:
 {"dealerId":"DEALER?","confidence":"high|medium|low","reasoning":"one sentence"}
@@ -111,10 +105,6 @@ Do NOT output thinking or analysis.`
         image_url: { url: croppedDataUrl }
       }
     ]
-  },
-  {
-    role: "assistant",
-    content: '{"dealerId":"'
   }
 ]
          
