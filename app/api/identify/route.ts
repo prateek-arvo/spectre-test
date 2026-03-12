@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
           messages: [
   {
     role: "system",
-    content: "You are a pattern matcher only return answer
+    content: "You are a pattern matcher only return answer"
   },
   {
     role: "user",
