@@ -77,35 +77,49 @@ export async function POST(req: NextRequest) {
           max_tokens: 512,
           stream: true,
           temperature: 0.1,
+          reasoning={"enabled": False},
           messages: [
-            {
-              role: "system",
-              content: "You are a JSON-only API. Output a single raw JSON object with no other text.",
-            },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: "I need to identify which dealer made this signature:",
-                },
-                { type: "image_url", image_url: { url: croppedDataUrl } },
-                {
-                  type: "text",
-                  text: "Compare it to all 18 dealers in this reference chart (labeled DEALER1–DEALER18, one is DEALER16z):",
-                },
-                { type: "image_url", image_url: { url: refDataUrl } },
-                {
-                  type: "text",
-                  text: 'Which dealer signature matches the first image? Reply with ONLY this JSON:\n{"dealerId":"DEALER?","confidence":"high|medium|low","reasoning":"one sentence"}',
-                },
-              ],
-            },
-            {
-              role: "assistant",
-              content: '{"dealerId":"',
-            },
-          ],
+  {
+    role: "system",
+    content: "You are a JSON-only API. Do not output thinking or <think> tags. Output exactly one JSON object."
+  },
+  {
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text:
+`Identify which dealer signature matches.
+
+Image 1 = Reference chart containing 18 dealer signatures labeled DEALER1–DEALER18 (one is DEALER16z).
+Image 2 = The signature we want to identify.
+
+Compare Image 2 against Image 1.
+
+Return ONLY this JSON:
+{"dealerId":"DEALER?","confidence":"high|medium|low","reasoning":"one sentence"}
+
+Do NOT output thinking or analysis.`
+      },
+
+      {
+        type: "image_url",
+        image_url: { url: refDataUrl }
+      },
+
+      {
+        type: "image_url",
+        image_url: { url: croppedDataUrl }
+      }
+    ]
+  },
+  {
+    role: "assistant",
+    content: '{"dealerId":"'
+  }
+]
+         
+         
         }),
       });
 
