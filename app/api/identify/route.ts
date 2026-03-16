@@ -22,32 +22,6 @@ async function getRefDataUrl(): Promise<string> {
   return cachedRefDataUrl;
 }
 
-function parseResult(text: string): { dealerId: string; confidence: string; reasoning: string } {
-  // 1. Strip <think>…</think> blocks
-  const stripped = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-
-  // 2. Try to extract a complete JSON object
-  const jsonMatch = stripped.match(/\{[\s\S]*?\}/);
-  if (jsonMatch) {
-    try {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed.dealerId) return parsed;
-    } catch { /* fall through */ }
-  }
-
-  // 3. Fallback: scan for "DEALER\d+" anywhere in the text
-  const dealerMatch = stripped.match(/DEALER\d+z?/i);
-  if (dealerMatch) {
-    return {
-      dealerId: dealerMatch[0].toUpperCase(),
-      confidence: "medium",
-      reasoning: stripped.slice(0, 200),
-    };
-  }
-
-  throw new Error("Could not identify dealer. Raw: " + stripped.slice(0, 300));
-}
-
 export async function POST(req: NextRequest) {
   try {
     const { croppedImage } = await req.json();
@@ -64,21 +38,34 @@ export async function POST(req: NextRequest) {
 
     const response = await client.chat.completions.create({
       model: MODEL,
-      max_tokens: 2048,
+      max_tokens: 512,
       temperature: 0,
-      reasoning: {"enabled":false}, 
+      reasoning: { enabled: false },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       messages: [
         {
           role: "system",
-          content: "You are a shape detector only return answer",
+          content:
+            "You are a shape detector. You will see an image containing a row of 4 geometric shapes. " +
+            "The shapes are from this set: circle, triangle, square, star, diamond, cross, arrow. " +
+            "Return ONLY the 4 shape names in left-to-right order, comma separated, lowercase. " +
+            "Example: circle,star,diamond,triangle\n" +
+            "Return nothing else — no explanation, no punctuation except commas.",
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: `What shapes do you see in this image in order return them textually comma separated.`,
+              text: "Here is the reference sheet showing all 7 possible shapes with their names:",
+            },
+            {
+              type: "image_url",
+              image_url: { url: refDataUrl },
+            },
+            {
+              type: "text",
+              text: "Now identify the 4 shapes in this image from left to right:",
             },
             {
               type: "image_url",
@@ -90,20 +77,81 @@ export async function POST(req: NextRequest) {
     });
 
     console.log("Full response:", JSON.stringify(response.choices[0], null, 2));
-    const msg = response.choices[0]?.message as { content?: string; reasoning?: string };
-    const fullText = msg?.content || msg?.reasoning || "";
-    console.log("Model raw response:", fullText.slice(0, 500));
+    const msg = response.choices[0]?.message as {
+      content?: string;
+      reasoning?: string;
+    };
+    const fullText = (msg?.content || msg?.reasoning || "").trim();
+    console.log("Model raw response:", fullText);
 
-    // Parse shapes from AI response
-    const shapes = fullText.split(',').map(s => {
-      const shape = s.trim().toLowerCase();
-      return shape === 'plus' ? 'cross' : shape;
-    });
+    // Parse shapes — handle various formats the model might return
+    const cleaned = fullText
+      .replace(/<think>[\s\S]*?<\/think>/gi, "")
+      .replace(/[.!?]/g, "")
+      .trim()
+      .toLowerCase();
+
+    // Try to extract just the comma-separated shapes
+    const shapeSet = new Set([
+      "circle",
+      "triangle",
+      "square",
+      "star",
+      "diamond",
+      "cross",
+      "arrow",
+    ]);
+    const synonyms: Record<string, string> = {
+      plus: "cross",
+      "+": "cross",
+      "plus sign": "cross",
+      rhombus: "diamond",
+      pentagon: "diamond",
+      rect: "square",
+      rectangle: "square",
+      "right arrow": "arrow",
+      pointer: "arrow",
+    };
+
+    // Split by comma, newline, or common separators
+    const tokens = cleaned
+      .split(/[,\n→>|]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const shapes: string[] = [];
+    for (const token of tokens) {
+      const t = token.replace(/^\d+[\.\)\s]+/, "").trim(); // strip "1. " prefixes
+      if (shapeSet.has(t)) {
+        shapes.push(t);
+      } else if (synonyms[t]) {
+        shapes.push(synonyms[t]);
+      } else {
+        // Fuzzy: check if any shape name is contained in the token
+        for (const s of shapeSet) {
+          if (t.includes(s)) {
+            shapes.push(s);
+            break;
+          }
+        }
+      }
+      if (shapes.length >= 4) break;
+    }
+
+    if (shapes.length !== 4) {
+      return NextResponse.json(
+        {
+          error: `Expected 4 shapes, got ${shapes.length}: [${shapes.join(", ")}]. Raw: "${fullText.slice(0, 200)}"`,
+          shapeOrder: shapes,
+        },
+        { status: 422 }
+      );
+    }
 
     // Match against db
     let matchedDealer = null;
     for (const [dealerId, dealerData] of Object.entries(db)) {
-      const dbShapes = dealerData.names.map(name => name.toLowerCase());
+      const dbShapes = dealerData.names.map((name: string) => name.toLowerCase());
       if (JSON.stringify(dbShapes) === JSON.stringify(shapes)) {
         matchedDealer = dealerId;
         break;
@@ -113,7 +161,14 @@ export async function POST(req: NextRequest) {
     if (matchedDealer) {
       return NextResponse.json({ dealerId: matchedDealer, shapeOrder: shapes });
     } else {
-      return NextResponse.json({ error: "No matching dealer found for the shape order", shapeOrder: shapes }, { status: 404 });
+      return NextResponse.json(
+        {
+          error:
+            "No matching dealer found for shape order: " + shapes.join(", "),
+          shapeOrder: shapes,
+        },
+        { status: 404 }
+      );
     }
   } catch (err) {
     console.error("Identify error:", err);
