@@ -1,58 +1,142 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import ReactCrop, {
-  type Crop,
-  type PixelCrop,
-  centerCrop,
-  makeAspectCrop,
-} from "react-image-crop";
 
-type AppState = "idle" | "camera" | "cropping" | "loading" | "result" | "error";
+type AppState = "idle" | "camera" | "preview" | "loading" | "result" | "error";
 
 interface Result {
   dealerId: string;
   shapeOrder: string[];
 }
 
-function getCroppedImg(img: HTMLImageElement, crop: PixelCrop): string {
-  const scaleX = img.naturalWidth / img.width;
-  const scaleY = img.naturalHeight / img.height;
-  const MAX = 600;
-  const rawW = Math.floor(crop.width * scaleX);
-  const rawH = Math.floor(crop.height * scaleY);
-  const s = Math.min(1, MAX / Math.max(rawW, rawH));
-  const outW = Math.round(rawW * s);
-  const outH = Math.round(rawH * s);
+/**
+ * Auto-crop: finds the label's content area (where shape codes live).
+ * 
+ * Strategy:
+ * 1. Find the white label rectangle (bright region vs dark background)
+ * 2. Within the label, skip the top header block (blue area with company info)
+ * 3. Return the content zone: from "Part No:" line down to "MFD:" line
+ *    This is where the small shape symbols are scattered between text.
+ */
+function autoCropContent(img: HTMLImageElement): string {
   const canvas = document.createElement("canvas");
-  canvas.width = outW;
-  canvas.height = outH;
-  canvas.getContext("2d")!.drawImage(
-    img,
-    crop.x * scaleX,
-    crop.y * scaleY,
-    rawW,
-    rawH,
-    0,
-    0,
-    outW,
-    outH
+  const MAX = 800;
+  const scale = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+  const cw = Math.round(img.naturalWidth * scale);
+  const ch = Math.round(img.naturalHeight * scale);
+  canvas.width = cw;
+  canvas.height = ch;
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(img, 0, 0, cw, ch);
+  const imageData = ctx.getImageData(0, 0, cw, ch);
+  const data = imageData.data;
+
+  // Grayscale
+  const gray = new Float32Array(cw * ch);
+  for (let i = 0; i < cw * ch; i++) {
+    gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
+  }
+
+  // Step 1: Find the label (bright rectangular region)
+  // Row brightness profile
+  const rowBright = new Float32Array(ch);
+  for (let y = 0; y < ch; y++) {
+    let sum = 0;
+    for (let x = 0; x < cw; x++) sum += gray[y * cw + x] > 160 ? 1 : 0;
+    rowBright[y] = sum / cw;
+  }
+
+  // Label rows: >40% bright pixels
+  let labelTop = 0, labelBot = ch - 1;
+  for (let y = 0; y < ch; y++) { if (rowBright[y] > 0.35) { labelTop = y; break; } }
+  for (let y = ch - 1; y >= 0; y--) { if (rowBright[y] > 0.35) { labelBot = y; break; } }
+
+  // Column brightness within label rows
+  let labelLeft = 0, labelRight = cw - 1;
+  const colBright = new Float32Array(cw);
+  for (let x = 0; x < cw; x++) {
+    let sum = 0, n = 0;
+    for (let y = labelTop; y <= labelBot; y++) {
+      sum += gray[y * cw + x] > 160 ? 1 : 0;
+      n++;
+    }
+    colBright[x] = sum / n;
+  }
+  for (let x = 0; x < cw; x++) { if (colBright[x] > 0.35) { labelLeft = x; break; } }
+  for (let x = cw - 1; x >= 0; x--) { if (colBright[x] > 0.35) { labelRight = x; break; } }
+
+  const lw = labelRight - labelLeft;
+  const lh = labelBot - labelTop;
+
+  // Step 2: Within the label, find where the header ends
+  // The header has colored background (darker rows). Content area is lighter.
+  // Compute row "whiteness" within the label (fraction of very bright pixels)
+  const rowWhite = new Float32Array(lh);
+  for (let y = 0; y < lh; y++) {
+    let count = 0;
+    const gy = labelTop + y;
+    for (let x = labelLeft; x <= labelRight; x++) {
+      if (gray[gy * cw + x] > 200) count++;
+    }
+    rowWhite[y] = count / lw;
+  }
+
+  // Smooth it
+  const smoothed = new Float32Array(lh);
+  const k = 3;
+  for (let y = 0; y < lh; y++) {
+    let s = 0, n = 0;
+    for (let dy = -k; dy <= k; dy++) {
+      const yy = y + dy;
+      if (yy >= 0 && yy < lh) { s += rowWhite[yy]; n++; }
+    }
+    smoothed[y] = s / n;
+  }
+
+  // Find content start: after the header zone (first 25-45% of label),
+  // look for where whiteness exceeds 0.6 (transition from blue header to white content)
+  let contentStartY = Math.round(lh * 0.30); // fallback
+  const searchStart = Math.round(lh * 0.20);
+  const searchEnd = Math.round(lh * 0.55);
+  for (let y = searchStart; y < searchEnd; y++) {
+    if (smoothed[y] > 0.55) {
+      contentStartY = y;
+      break;
+    }
+  }
+
+  // Content end: bottom of label minus small margin
+  const contentEndY = lh - Math.round(lh * 0.02);
+
+  // Step 3: Convert back to original image coordinates
+  const invScale = 1 / scale;
+  const pad = 5;
+  const cx1 = Math.max(0, Math.round((labelLeft + pad) * invScale));
+  const cy1 = Math.max(0, Math.round((labelTop + contentStartY) * invScale));
+  const cx2 = Math.min(img.naturalWidth, Math.round((labelRight - pad) * invScale));
+  const cy2 = Math.min(img.naturalHeight, Math.round((labelBot - Math.round(lh * 0.01)) * invScale));
+
+  // Crop and return as data URL
+  const outW = Math.min(600, cx2 - cx1);
+  const outH = Math.round(outW * (cy2 - cy1) / (cx2 - cx1));
+  const outCanvas = document.createElement("canvas");
+  outCanvas.width = outW;
+  outCanvas.height = outH;
+  outCanvas.getContext("2d")!.drawImage(
+    img, cx1, cy1, cx2 - cx1, cy2 - cy1, 0, 0, outW, outH
   );
-  return canvas.toDataURL("image/jpeg", 0.85);
+  return outCanvas.toDataURL("image/jpeg", 0.90);
 }
 
 export default function Home() {
   const [state, setState] = useState<AppState>("idle");
-  const [imageSrc, setImageSrc] = useState<string | null>(null);
-  const [crop, setCrop] = useState<Crop>();
-  const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
+  const [croppedPreview, setCroppedPreview] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
 
   // ─── Camera ───
   const startCamera = useCallback(async () => {
@@ -68,13 +152,9 @@ export default function Home() {
         audio: false,
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
+      if (videoRef.current) videoRef.current.srcObject = stream;
     } catch (err) {
-      setCameraError(
-        err instanceof Error ? err.message : "Could not access camera"
-      );
+      setCameraError(err instanceof Error ? err.message : "Camera unavailable");
     }
   }, []);
 
@@ -85,15 +165,41 @@ export default function Home() {
     }
   }, []);
 
+  useEffect(() => () => stopCamera(), [stopCamera]);
+
+  // ─── Capture → Auto-crop → Show preview ───
+  const captureAndCrop = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+
+    // Grab full frame
+    const fullCanvas = document.createElement("canvas");
+    fullCanvas.width = video.videoWidth;
+    fullCanvas.height = video.videoHeight;
+    fullCanvas.getContext("2d")!.drawImage(video, 0, 0);
+
+    stopCamera();
+
+    // Create a temporary image to run auto-crop on
+    const tempImg = new Image();
+    tempImg.onload = () => {
+      const cropped = autoCropContent(tempImg);
+      setCroppedPreview(cropped);
+      setState("preview");
+    };
+    tempImg.src = fullCanvas.toDataURL("image/jpeg", 0.92);
+  }, [stopCamera]);
+
   // ─── API ───
-  const sendToApi = async (croppedDataUrl: string) => {
+  const sendToApi = async () => {
+    if (!croppedPreview) return;
     setState("loading");
     setError(null);
     try {
       const res = await fetch("/api/identify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ croppedImage: croppedDataUrl }),
+        body: JSON.stringify({ croppedImage: croppedPreview }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "API error");
@@ -105,90 +211,13 @@ export default function Home() {
     }
   };
 
-  // Guide box proportions (must match the CSS below)
-  const GUIDE_W = 0.88; // 88% of video width
-  const GUIDE_H = 0.28; // 28% of video height
-
-  const capturePhoto = useCallback(() => {
-    const video = videoRef.current;
-    if (!video || !video.videoWidth) return;
-
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-
-    // The video is displayed with objectFit:cover, so it may be cropped.
-    // Calculate the visible region of the video that maps to the container.
-    const container = video.parentElement;
-    if (!container) return;
-    const cRect = container.getBoundingClientRect();
-    const cAspect = cRect.width / cRect.height;
-    const vAspect = vw / vh;
-
-    let srcX = 0, srcY = 0, srcW = vw, srcH = vh;
-    if (vAspect > cAspect) {
-      // Video wider than container — cropped on sides
-      srcW = Math.round(vh * cAspect);
-      srcX = Math.round((vw - srcW) / 2);
-    } else {
-      // Video taller — cropped top/bottom
-      srcH = Math.round(vw / cAspect);
-      srcY = Math.round((vh - srcH) / 2);
-    }
-
-    // Guide box within the visible region (centered)
-    const gw = Math.round(srcW * GUIDE_W);
-    const gh = Math.round(srcH * GUIDE_H);
-    const gx = srcX + Math.round((srcW - gw) / 2);
-    const gy = srcY + Math.round((srcH - gh) / 2);
-
-    // Crop just the guide region
-    const MAX = 600;
-    const scale = Math.min(1, MAX / Math.max(gw, gh));
-    const outW = Math.round(gw * scale);
-    const outH = Math.round(gh * scale);
-
-    const canvas = document.createElement("canvas");
-    canvas.width = outW;
-    canvas.height = outH;
-    canvas.getContext("2d")!.drawImage(video, gx, gy, gw, gh, 0, 0, outW, outH);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.90);
-
-    stopCamera();
-    // Skip cropping — send directly to API
-    sendToApi(dataUrl);
-  }, [stopCamera]);
-
-  useEffect(() => {
-    return () => stopCamera();
-  }, [stopCamera]);
-
-  const onImageLoad = useCallback(
-    (e: React.SyntheticEvent<HTMLImageElement>) => {
-      const { width, height } = e.currentTarget;
-      const initial = centerCrop(
-        makeAspectCrop({ unit: "%", width: 80 }, 3.5, width, height),
-        width,
-        height
-      );
-      setCrop(initial);
-    },
-    []
-  );
-
-  const handleIdentify = () => {
-    if (!imgRef.current || !completedCrop) return;
-    sendToApi(getCroppedImg(imgRef.current, completedCrop));
-  };
-
   const handleReset = () => {
     stopCamera();
     setState("idle");
-    setImageSrc(null);
+    setCroppedPreview(null);
     setResult(null);
     setError(null);
     setCameraError(null);
-    setCrop(undefined);
-    setCompletedCrop(undefined);
   };
 
   return (
@@ -205,7 +234,7 @@ export default function Home() {
         {state === "idle" && (
           <div style={centeredCol}>
             <p style={subtleText}>
-              Point camera at the shape code on the label
+              Point camera at the label to identify the dealer
             </p>
             <button onClick={startCamera} style={captureCircle}>
               <CameraIcon />
@@ -220,16 +249,16 @@ export default function Home() {
         {state === "camera" && (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
             <p style={{ ...subtleText, fontSize: 12 }}>
-              Align the shapes inside the guide, then capture
+              Frame the entire label, then capture
             </p>
 
             <div style={viewfinderContainer}>
               {cameraError ? (
-                <div style={centeredCol}>
-                  <p style={{ color: "#e57373", fontSize: 13, textAlign: "center", padding: 24 }}>
+                <div style={{ ...centeredCol, padding: 24 }}>
+                  <p style={{ color: "#e57373", fontSize: 13, textAlign: "center" }}>
                     {cameraError}
                   </p>
-                  <button onClick={handleReset} style={{ ...ghostBtn, width: "auto", flex: "none", padding: "10px 24px" }}>
+                  <button onClick={handleReset} style={{ ...ghostBtn, flex: "none", width: "auto", padding: "10px 24px" }}>
                     Back
                   </button>
                 </div>
@@ -242,19 +271,11 @@ export default function Home() {
                     muted
                     style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
                   />
-
-                  {/* Guide rectangle */}
+                  {/* Guide: show a label-shaped outline */}
                   <div style={guideOverlay}>
-                    <div style={guideBox} />
-                  </div>
-
-                  {/* Hint shapes along the bottom */}
-                  <div style={hintRow}>
-                    {["○", "△", "□", "☆", "◇", "✚", "→"].map((s, i) => (
-                      <span key={i} style={{ fontSize: 18, color: "rgba(255,255,255,0.3)" }}>
-                        {s}
-                      </span>
-                    ))}
+                    <div style={guideBox}>
+                      <span style={guideLabel}>Align label here</span>
+                    </div>
                   </div>
                 </>
               )}
@@ -263,54 +284,40 @@ export default function Home() {
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={handleReset} style={ghostBtn}>Cancel</button>
               <button
-                onClick={capturePhoto}
+                onClick={captureAndCrop}
                 disabled={!!cameraError}
                 style={{ ...primaryBtn, opacity: cameraError ? 0.3 : 1 }}
               >
-                Capture &amp; Identify
+                Capture
               </button>
             </div>
           </div>
         )}
 
-        {/* ─── CROPPING ─── */}
-        {state === "cropping" && imageSrc && (
+        {/* ─── PREVIEW (auto-cropped) ─── */}
+        {state === "preview" && croppedPreview && (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
             <p style={{ ...subtleText, fontSize: 12 }}>
-              Drag to crop tightly around the 4 shapes
+              Auto-cropped to content area. Verify it looks right.
             </p>
 
-            <div style={cropContainer}>
-              <ReactCrop
-                crop={crop}
-                onChange={(c) => setCrop(c)}
-                onComplete={(c) => setCompletedCrop(c)}
-                style={{ maxHeight: "60vh", width: "100%" }}
-                ruleOfThirds
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  ref={imgRef}
-                  src={imageSrc}
-                  alt="Captured"
-                  onLoad={onImageLoad}
-                  style={{ maxHeight: "60vh", width: "100%", objectFit: "contain", display: "block" }}
-                />
-              </ReactCrop>
+            <div style={previewContainer}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={croppedPreview}
+                alt="Cropped content area"
+                style={{ width: "100%", display: "block", borderRadius: 10 }}
+              />
             </div>
 
             <div style={{ display: "flex", gap: 10 }}>
               <button
-                onClick={() => { setImageSrc(null); startCamera(); }}
+                onClick={() => { setCroppedPreview(null); startCamera(); }}
                 style={ghostBtn}
               >
                 Retake
               </button>
-              <button
-                onClick={handleIdentify}
-                disabled={!completedCrop?.width}
-                style={{ ...primaryBtn, opacity: !completedCrop?.width ? 0.4 : 1 }}
-              >
+              <button onClick={sendToApi} style={primaryBtn}>
                 Identify
               </button>
             </div>
@@ -320,10 +327,14 @@ export default function Home() {
         {/* ─── LOADING ─── */}
         {state === "loading" && (
           <div style={centeredCol}>
+            {croppedPreview && (
+              <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid #222", maxWidth: 320, marginBottom: 8 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={croppedPreview} alt="" style={{ width: "100%", display: "block" }} />
+              </div>
+            )}
             <div style={spinnerStyle} />
-            <p style={{ color: "#444", fontSize: 13, margin: 0 }}>
-              Identifying shapes…
-            </p>
+            <p style={{ color: "#444", fontSize: 13, margin: 0 }}>Identifying shapes…</p>
             <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
           </div>
         )}
@@ -334,13 +345,9 @@ export default function Home() {
             <div style={resultCard}>
               <p style={labelSmall}>Identified as</p>
               <p style={dealerIdText}>{result.dealerId}</p>
-              <p style={shapeOrderText}>
-                {result.shapeOrder.join("  →  ")}
-              </p>
+              <p style={shapeOrderText}>{result.shapeOrder.join("  →  ")}</p>
             </div>
-            <button onClick={handleReset} style={primaryBtn}>
-              Scan Another
-            </button>
+            <button onClick={handleReset} style={primaryBtn}>Scan Another</button>
           </div>
         )}
 
@@ -355,9 +362,14 @@ export default function Home() {
                 {error}
               </p>
             </div>
-            <button onClick={handleReset} style={{ ...ghostBtn, flex: "none", width: "100%" }}>
-              Try Again
-            </button>
+            <div style={{ display: "flex", gap: 10, width: "100%" }}>
+              <button onClick={() => { setCroppedPreview(null); startCamera(); }} style={ghostBtn}>
+                Retake
+              </button>
+              <button onClick={handleReset} style={ghostBtn}>
+                Start Over
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -365,186 +377,91 @@ export default function Home() {
   );
 }
 
-/* ─── Shared Styles ─── */
+/* ─── Styles ─── */
 const mainStyle: React.CSSProperties = {
-  minHeight: "100svh",
-  display: "flex",
-  flexDirection: "column",
+  minHeight: "100svh", display: "flex", flexDirection: "column",
   fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-  background: "#0c0c0c",
-  color: "#fff",
+  background: "#0c0c0c", color: "#fff",
 };
 const headerStyle: React.CSSProperties = {
-  padding: "16px 20px 0",
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  zIndex: 10,
+  padding: "16px 20px 0", display: "flex", alignItems: "center", gap: 10, zIndex: 10,
 };
 const badgeStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: "#444",
-  fontWeight: 500,
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
-  marginTop: 2,
+  fontSize: 11, color: "#444", fontWeight: 500, letterSpacing: "0.08em",
+  textTransform: "uppercase", marginTop: 2,
 };
 const bodyStyle: React.CSSProperties = {
-  flex: 1,
-  display: "flex",
-  flexDirection: "column",
-  padding: "16px 20px 28px",
-  gap: 12,
+  flex: 1, display: "flex", flexDirection: "column", padding: "16px 20px 28px", gap: 12,
 };
 const centeredCol: React.CSSProperties = {
-  flex: 1,
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 24,
+  flex: 1, display: "flex", flexDirection: "column",
+  alignItems: "center", justifyContent: "center", gap: 24,
 };
 const subtleText: React.CSSProperties = {
-  color: "#555",
-  fontSize: 14,
-  margin: 0,
-  textAlign: "center",
+  color: "#555", fontSize: 14, margin: 0, textAlign: "center",
 };
 const captureCircle: React.CSSProperties = {
-  width: 120,
-  height: 120,
-  borderRadius: "50%",
-  background: "#181818",
-  border: "1px solid #2a2a2a",
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 10,
-  cursor: "pointer",
+  width: 120, height: 120, borderRadius: "50%", background: "#181818",
+  border: "1px solid #2a2a2a", display: "flex", flexDirection: "column",
+  alignItems: "center", justifyContent: "center", gap: 10, cursor: "pointer",
   WebkitTapHighlightColor: "transparent",
 };
 const viewfinderContainer: React.CSSProperties = {
-  flex: 1,
-  position: "relative",
-  borderRadius: 16,
-  overflow: "hidden",
-  background: "#000",
-  border: "1px solid #1e1e1e",
-  minHeight: 300,
+  flex: 1, position: "relative", borderRadius: 16, overflow: "hidden",
+  background: "#000", border: "1px solid #1e1e1e", minHeight: 300,
 };
 const guideOverlay: React.CSSProperties = {
-  position: "absolute",
-  inset: 0,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  pointerEvents: "none",
+  position: "absolute", inset: 0, display: "flex",
+  alignItems: "center", justifyContent: "center", pointerEvents: "none",
 };
 const guideBox: React.CSSProperties = {
-  width: "88%",
-  height: "28%",
-  border: "2px solid rgba(255,255,255,0.45)",
-  borderRadius: 12,
+  width: "90%", height: "55%",
+  border: "2px solid rgba(255,255,255,0.4)", borderRadius: 12,
   boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)",
+  display: "flex", alignItems: "flex-end", justifyContent: "center",
+  paddingBottom: 8,
 };
-const hintRow: React.CSSProperties = {
-  position: "absolute",
-  bottom: 16,
-  left: 0,
-  right: 0,
-  display: "flex",
-  justifyContent: "center",
-  gap: 12,
-  pointerEvents: "none",
+const guideLabel: React.CSSProperties = {
+  fontSize: 11, color: "rgba(255,255,255,0.5)", letterSpacing: "0.05em",
 };
-const cropContainer: React.CSSProperties = {
-  borderRadius: 12,
-  overflow: "hidden",
-  background: "#111",
-  border: "1px solid #1e1e1e",
-  flex: 1,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  minHeight: 280,
-  maxHeight: "60vh",
+const previewContainer: React.CSSProperties = {
+  flex: 1, borderRadius: 14, overflow: "hidden",
+  border: "2px solid #1e1e1e", background: "#111",
+  display: "flex", alignItems: "center", justifyContent: "center",
 };
 const resultCard: React.CSSProperties = {
-  background: "#111",
-  border: "1px solid #1e1e1e",
-  borderRadius: 16,
-  padding: "32px 24px",
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  gap: 8,
-  flex: 1,
-  justifyContent: "center",
+  background: "#111", border: "1px solid #1e1e1e", borderRadius: 16,
+  padding: "32px 24px", display: "flex", flexDirection: "column",
+  alignItems: "center", gap: 8, flex: 1, justifyContent: "center",
 };
 const labelSmall: React.CSSProperties = {
-  fontSize: 11,
-  color: "#444",
-  letterSpacing: "0.12em",
-  textTransform: "uppercase",
-  margin: 0,
+  fontSize: 11, color: "#444", letterSpacing: "0.12em",
+  textTransform: "uppercase", margin: 0,
 };
 const dealerIdText: React.CSSProperties = {
-  fontSize: 48,
-  fontWeight: 700,
-  letterSpacing: "-1px",
-  margin: "8px 0 0",
-  lineHeight: 1,
+  fontSize: 48, fontWeight: 700, letterSpacing: "-1px", margin: "8px 0 0", lineHeight: 1,
 };
 const shapeOrderText: React.CSSProperties = {
-  fontSize: 14,
-  color: "#555",
-  textAlign: "center",
-  lineHeight: 1.6,
-  marginTop: 16,
-  paddingTop: 16,
-  borderTop: "1px solid #1e1e1e",
-  width: "100%",
+  fontSize: 14, color: "#555", textAlign: "center", lineHeight: 1.6,
+  marginTop: 16, paddingTop: 16, borderTop: "1px solid #1e1e1e", width: "100%",
 };
 const errorCard: React.CSSProperties = {
-  background: "#110a0a",
-  border: "1px solid #2a1515",
-  borderRadius: 16,
-  padding: 24,
-  width: "100%",
-  textAlign: "center",
+  background: "#110a0a", border: "1px solid #2a1515", borderRadius: 16,
+  padding: 24, width: "100%", textAlign: "center",
 };
 const primaryBtn: React.CSSProperties = {
-  flex: 1,
-  padding: "15px 0",
-  borderRadius: 12,
-  background: "#fff",
-  color: "#0c0c0c",
-  border: "none",
-  fontSize: 14,
-  fontWeight: 600,
-  cursor: "pointer",
-  letterSpacing: "-0.2px",
-  WebkitTapHighlightColor: "transparent",
+  flex: 1, padding: "15px 0", borderRadius: 12, background: "#fff",
+  color: "#0c0c0c", border: "none", fontSize: 14, fontWeight: 600,
+  cursor: "pointer", letterSpacing: "-0.2px", WebkitTapHighlightColor: "transparent",
 };
 const ghostBtn: React.CSSProperties = {
-  flex: 1,
-  padding: "15px 0",
-  borderRadius: 12,
-  background: "transparent",
-  color: "#555",
-  border: "1px solid #222",
-  fontSize: 14,
-  fontWeight: 500,
-  cursor: "pointer",
-  WebkitTapHighlightColor: "transparent",
+  flex: 1, padding: "15px 0", borderRadius: 12, background: "transparent",
+  color: "#555", border: "1px solid #222", fontSize: 14, fontWeight: 500,
+  cursor: "pointer", WebkitTapHighlightColor: "transparent",
 };
 const spinnerStyle: React.CSSProperties = {
-  width: 44,
-  height: 44,
-  borderRadius: "50%",
-  border: "2px solid #2a2a2a",
-  borderTopColor: "#fff",
+  width: 44, height: 44, borderRadius: "50%",
+  border: "2px solid #2a2a2a", borderTopColor: "#fff",
   animation: "spin 0.8s linear infinite",
 };
 
