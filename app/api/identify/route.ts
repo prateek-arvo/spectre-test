@@ -95,7 +95,10 @@ export async function POST(req: NextRequest) {
     console.log("Model raw response:", fullText.slice(0, 500));
 
     // Parse shapes from AI response
-    const shapes = fullText.split(',').map(s => s.trim().toLowerCase());
+    const shapes = fullText.split(',').map(s => {
+      const shape = s.trim().toLowerCase();
+      return shape === 'plus' ? 'cross' : shape;
+    });
 
     // Match against db
     let matchedDealer = null;
