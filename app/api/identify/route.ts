@@ -22,121 +22,158 @@ async function getRefDataUrl(): Promise<string> {
   return cachedRefDataUrl;
 }
 
+function toDataUrl(img: string): string {
+  return img.startsWith("data:") ? img : `data:image/jpeg;base64,${img}`;
+}
+
+const SHAPE_SET = new Set([
+  "circle", "triangle", "square", "star", "diamond", "cross", "arrow",
+]);
+const SYNONYMS: Record<string, string> = {
+  plus: "cross", "+": "cross", "plus sign": "cross",
+  rhombus: "diamond", pentagon: "diamond",
+  rect: "square", rectangle: "square",
+  "right arrow": "arrow", pointer: "arrow",
+};
+
+function parseShapes(text: string): string[] {
+  const cleaned = text
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/[.!?]/g, "")
+    .trim()
+    .toLowerCase();
+
+  const tokens = cleaned.split(/[,\n→>|]+/).map(s => s.trim()).filter(Boolean);
+  const shapes: string[] = [];
+
+  for (const token of tokens) {
+    const t = token.replace(/^\d+[\.\)\s]+/, "").trim();
+    if (SHAPE_SET.has(t)) { shapes.push(t); }
+    else if (SYNONYMS[t]) { shapes.push(SYNONYMS[t]); }
+    else {
+      for (const s of SHAPE_SET) {
+        if (t.includes(s)) { shapes.push(s); break; }
+      }
+    }
+    if (shapes.length >= 4) break;
+  }
+  return shapes;
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { croppedImage } = await req.json();
+    const body = await req.json();
+    const { croppedImage, mode } = body;
+
     if (!croppedImage) {
       return NextResponse.json({ error: "No image provided" }, { status: 400 });
     }
 
-    const refDataUrl = await getRefDataUrl();
-    const croppedDataUrl = croppedImage.startsWith("data:")
-      ? croppedImage
-      : `data:image/jpeg;base64,${croppedImage}`;
-
     const client = new Together();
+    const imgUrl = toDataUrl(croppedImage);
+
+    // ─── MODE: CROP — Find MRP position and return crop coordinates ───
+    if (mode === "crop") {
+      const response = await client.chat.completions.create({
+        model: MODEL,
+        max_tokens: 512,
+        temperature: 0,
+        reasoning: { enabled: false },
+        messages: [
+          {
+            role: "system",
+            content:
+              "You analyze product label images. Return ONLY a JSON object, nothing else.\n" +
+              "No markdown, no backticks, no explanation.",
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text:
+                  'Look at this product label image. Find the text "MRP" or "MRP:" on the label.\n' +
+                  "Return the vertical position of MRP as a percentage from the top of the image (0=top, 100=bottom).\n" +
+                  "Also return the top of the content area (where 'Part No:' or the first product info line starts) as a percentage.\n" +
+                  'Return ONLY this JSON: {"mrp_y": <number>, "content_top_y": <number>}\n' +
+                  "Example: {\"mrp_y\": 65, \"content_top_y\": 35}",
+              },
+              { type: "image_url", image_url: { url: imgUrl } },
+            ] as never,
+          },
+        ],
+      });
+
+      const msg = response.choices[0]?.message as { content?: string };
+      const raw = (msg?.content || "").replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+      console.log("Crop response:", raw);
+
+      // Parse JSON from response
+      const jsonMatch = raw.match(/\{[\s\S]*?\}/);
+      if (!jsonMatch) {
+        return NextResponse.json(
+          { error: "Could not parse crop coordinates", raw: raw.slice(0, 300) },
+          { status: 422 }
+        );
+      }
+
+      try {
+        const coords = JSON.parse(jsonMatch[0]);
+        const mrpY = Number(coords.mrp_y || coords.mrp_position || 65);
+        const contentTopY = Number(coords.content_top_y || coords.content_top || 30);
+        return NextResponse.json({
+          mrp_y: Math.max(0, Math.min(100, mrpY)),
+          content_top_y: Math.max(0, Math.min(100, contentTopY)),
+        });
+      } catch {
+        return NextResponse.json(
+          { error: "Invalid JSON in response", raw: raw.slice(0, 300) },
+          { status: 422 }
+        );
+      }
+    }
+
+    // ─── MODE: IDENTIFY — Read shapes from cropped image ───
+    const refDataUrl = await getRefDataUrl();
 
     const response = await client.chat.completions.create({
       model: MODEL,
       max_tokens: 512,
       temperature: 0,
       reasoning: { enabled: false },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       messages: [
         {
           role: "system",
           content:
-            "You are a shape detector. You will see an image containing a row of 4 geometric shapes. " +
-            "The shapes are from this set: circle, triangle, square, star, diamond, cross, arrow. " +
-            "Return ONLY the 4 shape names in left-to-right order, comma separated, lowercase. " +
+            "You are a shape detector. You will see an image containing a row of 4 geometric shapes.\n" +
+            "The shapes are from this set: circle, triangle, square, star, diamond, cross, arrow.\n" +
+            "Return ONLY the 4 shape names in left-to-right order, comma separated, lowercase.\n" +
             "Example: circle,star,diamond,triangle\n" +
-            "Return nothing else — no explanation, no punctuation except commas.",
+            "Return nothing else.",
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: "Here is the reference sheet showing all 7 possible shapes with their names:",
+              text: "Reference sheet — all 7 possible shapes with names:",
             },
-            {
-              type: "image_url",
-              image_url: { url: refDataUrl },
-            },
+            { type: "image_url", image_url: { url: refDataUrl } },
             {
               type: "text",
-              text: "Now identify the 4 shapes in this image from left to right:",
+              text: "Now identify the 4 shapes in this image, left to right:",
             },
-            {
-              type: "image_url",
-              image_url: { url: croppedDataUrl },
-            },
+            { type: "image_url", image_url: { url: imgUrl } },
           ] as never,
         },
       ],
     });
 
-    console.log("Full response:", JSON.stringify(response.choices[0], null, 2));
-    const msg = response.choices[0]?.message as {
-      content?: string;
-      reasoning?: string;
-    };
+    const msg = response.choices[0]?.message as { content?: string; reasoning?: string };
     const fullText = (msg?.content || msg?.reasoning || "").trim();
-    console.log("Model raw response:", fullText);
+    console.log("Identify response:", fullText);
 
-    // Parse shapes — handle various formats the model might return
-    const cleaned = fullText
-      .replace(/<think>[\s\S]*?<\/think>/gi, "")
-      .replace(/[.!?]/g, "")
-      .trim()
-      .toLowerCase();
-
-    // Try to extract just the comma-separated shapes
-    const shapeSet = new Set([
-      "circle",
-      "triangle",
-      "square",
-      "star",
-      "diamond",
-      "cross",
-      "arrow",
-    ]);
-    const synonyms: Record<string, string> = {
-      plus: "cross",
-      "+": "cross",
-      "plus sign": "cross",
-      rhombus: "diamond",
-      pentagon: "diamond",
-      rect: "square",
-      rectangle: "square",
-      "right arrow": "arrow",
-      pointer: "arrow",
-    };
-
-    // Split by comma, newline, or common separators
-    const tokens = cleaned
-      .split(/[,\n→>|]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-
-    const shapes: string[] = [];
-    for (const token of tokens) {
-      const t = token.replace(/^\d+[\.\)\s]+/, "").trim(); // strip "1. " prefixes
-      if (shapeSet.has(t)) {
-        shapes.push(t);
-      } else if (synonyms[t]) {
-        shapes.push(synonyms[t]);
-      } else {
-        // Fuzzy: check if any shape name is contained in the token
-        for (const s of shapeSet) {
-          if (t.includes(s)) {
-            shapes.push(s);
-            break;
-          }
-        }
-      }
-      if (shapes.length >= 4) break;
-    }
+    const shapes = parseShapes(fullText);
 
     if (shapes.length !== 4) {
       return NextResponse.json(
@@ -162,16 +199,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ dealerId: matchedDealer, shapeOrder: shapes });
     } else {
       return NextResponse.json(
-        {
-          error:
-            "No matching dealer found for shape order: " + shapes.join(", "),
-          shapeOrder: shapes,
-        },
+        { error: "No matching dealer for: " + shapes.join(", "), shapeOrder: shapes },
         { status: 404 }
       );
     }
   } catch (err) {
-    console.error("Identify error:", err);
+    console.error("API error:", err);
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
