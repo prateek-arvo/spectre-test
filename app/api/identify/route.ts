@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import sharp from "sharp";
 import Together from "together-ai";
+import db from "./db.json";
 
 export const maxDuration = 120;
 
@@ -77,7 +78,7 @@ export async function POST(req: NextRequest) {
           content: [
             {
               type: "text",
-              text: `What shapes do you see in this image in order return them textually`,
+              text: `What shapes do you see in this image in order return them textually comma separated.`,
             },
             {
               type: "image_url",
@@ -92,8 +93,25 @@ export async function POST(req: NextRequest) {
     const msg = response.choices[0]?.message as { content?: string; reasoning?: string };
     const fullText = msg?.content || msg?.reasoning || "";
     console.log("Model raw response:", fullText.slice(0, 500));
-    const result = fullText;
-    return NextResponse.json(result);
+
+    // Parse shapes from AI response
+    const shapes = fullText.split(',').map(s => s.trim().toLowerCase());
+
+    // Match against db
+    let matchedDealer = null;
+    for (const [dealerId, dealerData] of Object.entries(db)) {
+      const dbShapes = dealerData.names.map(name => name.toLowerCase());
+      if (JSON.stringify(dbShapes) === JSON.stringify(shapes)) {
+        matchedDealer = dealerId;
+        break;
+      }
+    }
+
+    if (matchedDealer) {
+      return NextResponse.json({ dealerId: matchedDealer });
+    } else {
+      return NextResponse.json({ error: "No matching dealer found for the shape order" }, { status: 404 });
+    }
   } catch (err) {
     console.error("Identify error:", err);
     const message = err instanceof Error ? err.message : "Unknown error";

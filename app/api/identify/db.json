@@ -1,0 +1,302 @@
+{
+  "DEALER1": {
+    "code": [
+      3,
+      5,
+      1,
+      2
+    ],
+    "names": [
+      "star",
+      "cross",
+      "triangle",
+      "square"
+    ],
+    "created": "2026-03-16 12:34:30"
+  },
+  "DEALER2": {
+    "code": [
+      3,
+      5,
+      4,
+      2
+    ],
+    "names": [
+      "star",
+      "cross",
+      "diamond",
+      "square"
+    ],
+    "created": "2026-03-16 12:34:30"
+  },
+  "DEALER3": {
+    "code": [
+      5,
+      3,
+      2,
+      4
+    ],
+    "names": [
+      "cross",
+      "star",
+      "square",
+      "diamond"
+    ],
+    "created": "2026-03-16 12:34:30"
+  },
+  "DEALER4": {
+    "code": [
+      5,
+      6,
+      2,
+      3
+    ],
+    "names": [
+      "cross",
+      "arrow",
+      "square",
+      "star"
+    ],
+    "created": "2026-03-16 14:04:06"
+  },
+  "DEALER5": {
+    "code": [
+      6,
+      3,
+      2,
+      4
+    ],
+    "names": [
+      "arrow",
+      "star",
+      "square",
+      "diamond"
+    ],
+    "created": "2026-03-16 14:04:06"
+  },
+  "DEALER6": {
+    "code": [
+      5,
+      6,
+      4,
+      0
+    ],
+    "names": [
+      "cross",
+      "arrow",
+      "diamond",
+      "circle"
+    ],
+    "created": "2026-03-16 14:04:06"
+  },
+  "DEALER7": {
+    "code": [
+      1,
+      0,
+      3,
+      6
+    ],
+    "names": [
+      "triangle",
+      "circle",
+      "star",
+      "arrow"
+    ],
+    "created": "2026-03-16 14:04:06"
+  },
+  "DEALER8": {
+    "code": [
+      3,
+      6,
+      2,
+      4
+    ],
+    "names": [
+      "star",
+      "arrow",
+      "square",
+      "diamond"
+    ],
+    "created": "2026-03-16 14:04:06"
+  },
+  "DEALER9": {
+    "code": [
+      6,
+      2,
+      5,
+      4
+    ],
+    "names": [
+      "arrow",
+      "square",
+      "cross",
+      "diamond"
+    ],
+    "created": "2026-03-16 14:04:06"
+  },
+  "DEALER10": {
+    "code": [
+      4,
+      6,
+      0,
+      2
+    ],
+    "names": [
+      "diamond",
+      "arrow",
+      "circle",
+      "square"
+    ],
+    "created": "2026-03-16 14:04:06"
+  },
+  "DEALER11": {
+    "code": [
+      4,
+      1,
+      6,
+      2
+    ],
+    "names": [
+      "diamond",
+      "triangle",
+      "arrow",
+      "square"
+    ],
+    "created": "2026-03-16 14:04:06"
+  },
+  "DEALER12": {
+    "code": [
+      1,
+      3,
+      2,
+      4
+    ],
+    "names": [
+      "triangle",
+      "star",
+      "square",
+      "diamond"
+    ],
+    "created": "2026-03-16 14:04:06"
+  },
+  "DEALER13": {
+    "code": [
+      5,
+      2,
+      6,
+      0
+    ],
+    "names": [
+      "cross",
+      "square",
+      "arrow",
+      "circle"
+    ],
+    "created": "2026-03-16 14:04:06"
+  },
+  "DEALER14": {
+    "code": [
+      1,
+      5,
+      4,
+      2
+    ],
+    "names": [
+      "triangle",
+      "cross",
+      "diamond",
+      "square"
+    ],
+    "created": "2026-03-16 14:04:06"
+  },
+  "DEALER15": {
+    "code": [
+      0,
+      4,
+      3,
+      5
+    ],
+    "names": [
+      "circle",
+      "diamond",
+      "star",
+      "cross"
+    ],
+    "created": "2026-03-16 14:04:06"
+  },
+  "DEALER16": {
+    "code": [
+      4,
+      5,
+      0,
+      1
+    ],
+    "names": [
+      "diamond",
+      "cross",
+      "circle",
+      "triangle"
+    ],
+    "created": "2026-03-16 14:04:07"
+  },
+  "DEALER17": {
+    "code": [
+      1,
+      4,
+      3,
+      2
+    ],
+    "names": [
+      "triangle",
+      "diamond",
+      "star",
+      "square"
+    ],
+    "created": "2026-03-16 14:04:07"
+  },
+  "DEALER18": {
+    "code": [
+      2,
+      5,
+      4,
+      3
+    ],
+    "names": [
+      "square",
+      "cross",
+      "diamond",
+      "star"
+    ],
+    "created": "2026-03-16 14:04:07"
+  },
+  "DEALER19": {
+    "code": [
+      0,
+      3,
+      1,
+      5
+    ],
+    "names": [
+      "circle",
+      "star",
+      "triangle",
+      "cross"
+    ],
+    "created": "2026-03-16 14:04:07"
+  },
+  "DEALER20": {
+    "code": [
+      6,
+      2,
+      1,
+      3
+    ],
+    "names": [
+      "arrow",
+      "square",
+      "triangle",
+      "star"
+    ],
+    "created": "2026-03-16 14:04:07"
+  }
+}
