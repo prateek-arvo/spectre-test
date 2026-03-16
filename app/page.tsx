@@ -85,25 +85,6 @@ export default function Home() {
     }
   }, []);
 
-  const capturePhoto = useCallback(() => {
-    const video = videoRef.current;
-    if (!video || !video.videoWidth) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext("2d")!.drawImage(video, 0, 0);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-    stopCamera();
-    setImageSrc(dataUrl);
-    setCrop(undefined);
-    setCompletedCrop(undefined);
-    setState("cropping");
-  }, [stopCamera]);
-
-  useEffect(() => {
-    return () => stopCamera();
-  }, [stopCamera]);
-
   // ─── API ───
   const sendToApi = async (croppedDataUrl: string) => {
     setState("loading");
@@ -123,6 +104,63 @@ export default function Home() {
       setState("error");
     }
   };
+
+  // Guide box proportions (must match the CSS below)
+  const GUIDE_W = 0.88; // 88% of video width
+  const GUIDE_H = 0.28; // 28% of video height
+
+  const capturePhoto = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+
+    // The video is displayed with objectFit:cover, so it may be cropped.
+    // Calculate the visible region of the video that maps to the container.
+    const container = video.parentElement;
+    if (!container) return;
+    const cRect = container.getBoundingClientRect();
+    const cAspect = cRect.width / cRect.height;
+    const vAspect = vw / vh;
+
+    let srcX = 0, srcY = 0, srcW = vw, srcH = vh;
+    if (vAspect > cAspect) {
+      // Video wider than container — cropped on sides
+      srcW = Math.round(vh * cAspect);
+      srcX = Math.round((vw - srcW) / 2);
+    } else {
+      // Video taller — cropped top/bottom
+      srcH = Math.round(vw / cAspect);
+      srcY = Math.round((vh - srcH) / 2);
+    }
+
+    // Guide box within the visible region (centered)
+    const gw = Math.round(srcW * GUIDE_W);
+    const gh = Math.round(srcH * GUIDE_H);
+    const gx = srcX + Math.round((srcW - gw) / 2);
+    const gy = srcY + Math.round((srcH - gh) / 2);
+
+    // Crop just the guide region
+    const MAX = 600;
+    const scale = Math.min(1, MAX / Math.max(gw, gh));
+    const outW = Math.round(gw * scale);
+    const outH = Math.round(gh * scale);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = outW;
+    canvas.height = outH;
+    canvas.getContext("2d")!.drawImage(video, gx, gy, gw, gh, 0, 0, outW, outH);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.90);
+
+    stopCamera();
+    // Skip cropping — send directly to API
+    sendToApi(dataUrl);
+  }, [stopCamera]);
+
+  useEffect(() => {
+    return () => stopCamera();
+  }, [stopCamera]);
 
   const onImageLoad = useCallback(
     (e: React.SyntheticEvent<HTMLImageElement>) => {
@@ -229,7 +267,7 @@ export default function Home() {
                 disabled={!!cameraError}
                 style={{ ...primaryBtn, opacity: cameraError ? 0.3 : 1 }}
               >
-                Capture
+                Capture &amp; Identify
               </button>
             </div>
           </div>
