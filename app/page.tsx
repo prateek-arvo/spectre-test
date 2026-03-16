@@ -417,6 +417,7 @@ export default function Home() {
               </p>
               <p style={{ color: "#6b3333", fontSize: 12, margin: 0, lineHeight: 1.5 }}>
                 {error}
+                {result?.shapeOrder}
               </p>
             </div>
             <button onClick={handleReset} style={ghostBtn}>
