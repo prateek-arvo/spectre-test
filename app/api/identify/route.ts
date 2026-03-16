@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
     const msg = response.choices[0]?.message as { content?: string; reasoning?: string };
     const fullText = msg?.content || msg?.reasoning || "";
     console.log("Model raw response:", fullText.slice(0, 500));
-    const result = parseResult(fullText);
+    const result = fullText;
     return NextResponse.json(result);
   } catch (err) {
     console.error("Identify error:", err);
