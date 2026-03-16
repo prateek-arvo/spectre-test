@@ -269,7 +269,7 @@ export default function Home() {
                     autoPlay
                     playsInline
                     muted
-                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                    style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
                   />
                   {/* Guide: show a label-shaped outline */}
                   <div style={guideOverlay}>
