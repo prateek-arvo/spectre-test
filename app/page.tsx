@@ -146,8 +146,8 @@ export default function Home() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 1080 },
+          height: { ideal: 1920 },
         },
         audio: false,
       });
@@ -415,7 +415,7 @@ const guideOverlay: React.CSSProperties = {
   alignItems: "center", justifyContent: "center", pointerEvents: "none",
 };
 const guideBox: React.CSSProperties = {
-  width: "90%", height: "55%",
+  width: "90%", height: "70%",
   border: "2px solid rgba(255,255,255,0.4)", borderRadius: 12,
   boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)",
   display: "flex", alignItems: "flex-end", justifyContent: "center",
