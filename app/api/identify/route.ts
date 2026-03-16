@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
           content: [
             {
               type: "text",
-              text: `What shapes do you see in this image in order return them textually comma separated.`,
+              text: `What shapes do you see in this image in order return them textually comma separated. the shapes are located before and above NET QTY`,
             },
             {
               type: "image_url",
