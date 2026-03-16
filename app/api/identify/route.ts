@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
       model: MODEL,
       max_tokens: 2048,
       temperature: 0,
-      reasoning: {"enabled":false},
+      reasoning: {"enabled":false}, 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       messages: [
         {
