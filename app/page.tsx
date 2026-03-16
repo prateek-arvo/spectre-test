@@ -40,9 +40,16 @@ function detectShapeRegion(
     gray[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
   }
 
-  // Threshold: dark pixels = content
-  const thresh = 140;
+  // Threshold: dark pixels = content (lower = only bold strokes, ignores watermarks)
+  const thresh = 110;
   const binary = gray.map((v) => (v < thresh ? 1 : 0));
+
+  // Exclude left/right 8% margins (colored border strips on many labels)
+  const marginX = Math.round(cw * 0.08);
+  for (let y = 0; y < ch; y++) {
+    for (let x = 0; x < marginX; x++) binary[y * cw + x] = 0;
+    for (let x = cw - marginX; x < cw; x++) binary[y * cw + x] = 0;
+  }
 
   // Compute row density (% of dark pixels per row)
   const rowDensity = new Float32Array(ch);
