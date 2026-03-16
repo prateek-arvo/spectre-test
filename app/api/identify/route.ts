@@ -6,7 +6,7 @@ import Together from "together-ai";
 
 export const maxDuration = 120;
 
-const MODEL = "google/gemma-3n-E4B-it";
+const MODEL = "Qwen/Qwen3.5-9B";
 
 let cachedRefDataUrl: string | null = null;
 
