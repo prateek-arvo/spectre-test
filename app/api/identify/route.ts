@@ -92,11 +92,9 @@ export async function POST(req: NextRequest) {
               {
                 type: "text",
                 text:
-                  'Look at this product label image. Find the text "MRP" or "MRP:" on the label.\n' +
-                  "Return the vertical position of MRP as a percentage from the top of the image (0=top, 100=bottom).\n" +
-                  "Also return the top of the content area (where 'Part No:' or the first product info line starts) as a percentage.\n" +
-                  'Return ONLY this JSON: {"mrp_y": <number>, "content_top_y": <number>}\n' +
-                  "Example: {\"mrp_y\": 65, \"content_top_y\": 35}",
+                  'This is a product label. Find the text "MRP:" on it.\n' +
+                  "Return its vertical center position as a percentage of image height (0=top, 100=bottom).\n" +
+                  'Return ONLY: {"mrp_y": <number>}',
               },
               { type: "image_url", image_url: { url: imgUrl } },
             ] as never,
@@ -119,11 +117,9 @@ export async function POST(req: NextRequest) {
 
       try {
         const coords = JSON.parse(jsonMatch[0]);
-        const mrpY = Number(coords.mrp_y || coords.mrp_position || 65);
-        const contentTopY = Number(coords.content_top_y || coords.content_top || 30);
+        const mrpY = Number(coords.mrp_y ?? 65);
         return NextResponse.json({
           mrp_y: Math.max(0, Math.min(100, mrpY)),
-          content_top_y: Math.max(0, Math.min(100, contentTopY)),
         });
       } catch {
         return NextResponse.json(

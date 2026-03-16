@@ -54,22 +54,23 @@ export default function Home() {
 
       if (!res.ok) {
         console.warn("Crop API failed, using fallback:", data);
-        // Fallback: crop middle 30-65% of the image
-        doCrop(fullImageDataUrl, 30, 65);
+        // Fallback: crop around typical MRP area (60-75% of label)
+        doCrop(fullImageDataUrl, 55, 75);
         return;
       }
 
-      const { mrp_y, content_top_y } = data;
-      console.log(`Vision model says: content_top=${content_top_y}%, mrp=${mrp_y}%`);
+      const { mrp_y } = data;
+      console.log(`Vision model says: mrp at ${mrp_y}%`);
 
-      // Crop from content_top to just above MRP (with small padding)
-      const topPct = Math.max(0, content_top_y - 2);
-      const botPct = Math.min(100, mrp_y - 1);
+      // Crop a box around MRP with padding (±8% of image height)
+      const pad = 8;
+      const topPct = Math.max(0, mrp_y - pad);
+      const botPct = Math.min(100, mrp_y + pad);
       doCrop(fullImageDataUrl, topPct, botPct);
     } catch (err) {
       console.error("findMrpAndCrop error:", err);
       // Fallback crop
-      doCrop(fullImageDataUrl, 30, 65);
+      doCrop(fullImageDataUrl, 55, 75);
     }
   };
 
@@ -194,7 +195,7 @@ export default function Home() {
         {state === "preview" && croppedPreview && (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14 }}>
             <p style={{ ...subtleText, fontSize: 12 }}>
-              Auto-cropped to area above MRP — verify it captures the shapes
+              Auto-cropped around MRP area — verify it captures the shapes
             </p>
 
             <div style={previewContainer}>
