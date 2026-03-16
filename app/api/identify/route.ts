@@ -108,9 +108,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (matchedDealer) {
-      return NextResponse.json({ dealerId: matchedDealer });
+      return NextResponse.json({ dealerId: matchedDealer, shapeOrder: shapes });
     } else {
-      return NextResponse.json({ error: "No matching dealer found for the shape order" }, { status: 404 });
+      return NextResponse.json({ error: "No matching dealer found for the shape order", shapeOrder: shapes }, { status: 404 });
     }
   } catch (err) {
     console.error("Identify error:", err);
