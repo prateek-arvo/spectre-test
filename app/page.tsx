@@ -47,7 +47,7 @@ export default function Home() {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
-  const [result, setResult] = useState<Result | null>(null);
+  const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -91,7 +91,7 @@ export default function Home() {
         const data = await res.json();
         throw new Error(data.error || "API error");
       }
-      const data: Result = await res.json();
+      const data: any = await res.json();
       setResult(data);
       setState("result");
     } catch (err) {
@@ -347,7 +347,7 @@ export default function Home() {
                   lineHeight: 1,
                 }}
               >
-                {result.dealerId}
+                {result}
               </p>
               <div
                 style={{
@@ -362,7 +362,7 @@ export default function Home() {
                     width: 6,
                     height: 6,
                     borderRadius: "50%",
-                    background: confidenceDot(result.confidence),
+                    background: confidenceDot(result),
                   }}
                 />
                 <span
@@ -372,10 +372,10 @@ export default function Home() {
                     textTransform: "capitalize",
                   }}
                 >
-                  {result.confidence} confidence
+                  {result} confidence
                 </span>
               </div>
-              {result.reasoning && (
+              {result && (
                 <p
                   style={{
                     fontSize: 13,
@@ -388,7 +388,7 @@ export default function Home() {
                     width: "100%",
                   }}
                 >
-                  {result.reasoning}
+                  {result}
                 </p>
               )}
             </div>
