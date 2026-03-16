@@ -6,7 +6,7 @@ import Together from "together-ai";
 
 export const maxDuration = 120;
 
-const MODEL = "Qwen/Qwen3.5-9B";
+const MODEL = "google/gemma-3n-E4B-it";
 
 let cachedRefDataUrl: string | null = null;
 
@@ -64,26 +64,20 @@ export async function POST(req: NextRequest) {
     const response = await client.chat.completions.create({
       model: MODEL,
       max_tokens: 2048,
-      temperature: 0.1,
+      temperature: 0,
+      reasoning: {"enabled":false},
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       messages: [
         {
           role: "system",
-          content: "You are a pattern matcher only return answer /no_think",
+          content: "You are a shape detector only return answer",
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: `/no_think which DEALER does the second image match from the grid of labels in first image
-
-Return ONLY this JSON:
-{"dealerId":"DEALER?","confidence":"high|medium|low","reasoning":"one sentence"}`,
-            },
-            {
-              type: "image_url",
-              image_url: { url: refDataUrl },
+              text: `What shapes do you see in this image in order return them textually`,
             },
             {
               type: "image_url",
