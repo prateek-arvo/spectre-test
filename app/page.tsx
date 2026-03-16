@@ -7,8 +7,7 @@ type AppState = "idle" | "cropping" | "loading" | "result" | "error";
 
 interface Result {
   dealerId: string;
-  confidence: string;
-  reasoning: string;
+  shapeOrder: string[];
 }
 
 function getCroppedImg(img: HTMLImageElement, crop: PixelCrop): string {
@@ -47,7 +46,7 @@ export default function Home() {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
-  const [result, setResult] = useState<string | null>(null);
+  const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -347,7 +346,7 @@ export default function Home() {
                   lineHeight: 1,
                 }}
               >
-                {result}
+                {result.dealerId}
               </p>
               <div
                 style={{
@@ -359,20 +358,12 @@ export default function Home() {
               >
                 <span
                   style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    background: confidenceDot(result),
-                  }}
-                />
-                <span
-                  style={{
                     fontSize: 12,
                     color: "#555",
                     textTransform: "capitalize",
                   }}
                 >
-                  {result} confidence
+                  Shape Order: {result.shapeOrder.join(', ')}
                 </span>
               </div>
               {result && (
@@ -388,7 +379,7 @@ export default function Home() {
                     width: "100%",
                   }}
                 >
-                  {result}
+                  Detected shape order: {result.shapeOrder.join(', ')}
                 </p>
               )}
             </div>
